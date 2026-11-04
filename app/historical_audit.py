@@ -6,6 +6,7 @@ from app.auth import connect_from_environment, AngelAuthenticationError
 from app.instruments import load_master, nifty_futures_contracts
 from app.data_validation import market_cutoff, oi_sample, volume_consistency
 from app.oi_comparison import oi_session_comparison
+from app.positioning import classify_close_positioning
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -118,7 +119,9 @@ def audit_historical():
         return {"success": True, "symbol": contract["symbol"],
                 "expiry": contract["expiry_date"], "candle_count": len(candles),
                 "historical_oi_status": oi_status, "historical_oi_points": oi_points,
-                "historical_oi_inspection": oi_inspection, "historical_oi_comparison": oi_comparison, "volume_unit_check": quote_check,
+                "historical_oi_inspection": oi_inspection, "historical_oi_comparison": oi_comparison,
+                "session_positioning": classify_close_positioning(candles, oi_comparison),
+                "volume_unit_check": quote_check,
                 **summary,
                 "warning": "Single-contract history only. No rollover-adjusted baseline; do not use for live signals yet."}
     finally:
