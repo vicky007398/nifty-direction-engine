@@ -46,8 +46,10 @@ def angel_diagnostics(x_diagnostic_key: str | None = Header(default=None)):
     from app.auth import connect_from_environment
     try:
         client = connect_from_environment()
-    except Exception:
-        return {"angel_authenticated": False, "reason": "Authentication failed; inspect server configuration and outbound IP restrictions"}
+    except Exception as exc:
+        from app.auth import AngelAuthenticationError
+        category = exc.category if isinstance(exc, AngelAuthenticationError) else "UNKNOWN_ERROR"
+        return {"angel_authenticated": False, "failure_category": category, "market_data": "NOT_TESTED"}
     finally:
         # Do not log sensitive SDK responses or access tokens.
         pass
