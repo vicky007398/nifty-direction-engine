@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from pydantic import BaseModel, Field
 from app.analytics import classify_participation
 
@@ -31,3 +31,28 @@ def config_diagnostics():
         "market_data": "NOT_TESTED",
         "model": "NOT_TRAINED",
     }
+
+@app.get("/diagnostics/angel")
+def angel_diagnostics(x_diagnostic_key: str | None = Header(default=None)):
+    """Protected, on-demand Angel login check. Never returns credentials or tokens."""
+    import os
+    import secrets
+    from fastapi import HTTPException
+    configured_key = os.getenv("DIAGNOSTIC_KEY", "").strip()
+    if not configured_key or not x_diagnostic_key or not secrets.compare_digest(
+        x_diagnostic_key, configured_key
+    ):
+        raise HTTPException(status_code=404, detail="Not Found")
+    from app.auth import connect_from_environment
+    try:
+        client = connect_from_environment()
+    except Exception:
+        return {"angel_authenticated": False, "reason": "Authentication failed; inspect server configuration and outbound IP restrictions"}
+    finally:
+        # Do not log sensitive SDK responses or access tokens.
+        pass
+    try:
+        client.terminateSession(os.environ["ANGEL_CLIENT_CODE"])
+    except Exception:
+        pass
+    return {"angel_authenticated": True, "market_data": "NOT_TESTED"}
