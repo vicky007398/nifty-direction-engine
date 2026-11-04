@@ -58,3 +58,15 @@ def angel_diagnostics(x_diagnostic_key: str | None = Header(default=None)):
     except Exception:
         pass
     return {"angel_authenticated": True, "market_data": "NOT_TESTED"}
+
+@app.get("/diagnostics/nifty-futures")
+def nifty_futures_diagnostics(x_diagnostic_key: str | None = Header(default=None)):
+    """Protected, read-only quote check; no order placement."""
+    import os
+    import secrets
+    from fastapi import HTTPException
+    expected = os.getenv("DIAGNOSTIC_KEY", "").strip()
+    if not expected or not x_diagnostic_key or not secrets.compare_digest(x_diagnostic_key, expected):
+        raise HTTPException(status_code=404, detail="Not Found")
+    from app.market_diagnostics import check_futures_quote
+    return check_futures_quote()
