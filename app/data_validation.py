@@ -1,5 +1,5 @@
 """Read-only market data consistency diagnostics. Never issue trade signals."""
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from math import isfinite
 from zoneinfo import ZoneInfo
 
@@ -11,9 +11,7 @@ def market_cutoff(now):
         return None
     if local.time() >= time(15, 30):
         return time(15, 29)
-    return local.replace(second=0, microsecond=0).time().replace(
-        hour=local.hour, minute=local.minute - 1 if local.minute else 59
-    ) if local.minute else time(local.hour - 1, 59)
+    return (local.replace(second=0, microsecond=0) - timedelta(minutes=1)).time()
 
 def oi_sample(rows):
     if not isinstance(rows, list):
