@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, time
 from zoneinfo import ZoneInfo
 from app.auth import connect_from_environment, AngelAuthenticationError
 from app.instruments import load_master, nifty_futures_contracts
+from app.data_validation import market_cutoff, oi_sample, volume_consistency
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -27,8 +28,10 @@ def _parse_candles(rows):
 def _baseline(rows, now):
     sessions = _parse_candles(rows)
     # Use only the last completed minute; avoid partial current minute.
-    cutoff = now.replace(second=0, microsecond=0) - timedelta(minutes=1)
-    cutoff_time = cutoff.time().replace(tzinfo=None)
+    cutoff_time = market_cutoff(now)
+    if cutoff_time is None:
+        return {'rvol_status': 'OUTSIDE_COMPARABLE_WINDOW', 'historical_rvol': None, 'comparison_time_ist': None}
+    cutoff = datetime.combine(now.date(), cutoff_time, tzinfo=IST)
     historical = []
     for day, candles in sorted(sessions.items()):
         if day >= now.date():
@@ -80,6 +83,7 @@ def audit_historical():
         # Angel historical OI availability must be checked independently.
         oi_status = "UNAVAILABLE"
         oi_points = 0
+        oi_inspection = {'status': 'NOT_TESTED'}
         try:
             if hasattr(client, "getOIData"):
                 oi_result = client.getOIData({**params, "interval": "THREE_MINUTE"})
@@ -88,15 +92,30 @@ def audit_historical():
                     if isinstance(oi_rows, list):
                         oi_points = len(oi_rows)
                         oi_status = "AVAILABLE" if oi_points else "EMPTY"
+                        oi_inspection = oi_sample(oi_rows)
                 else:
                     oi_status = "API_REJECTED"
             else:
                 oi_status = "SDK_METHOD_MISSING"
         except Exception:
             oi_status = "REQUEST_ERROR"
+        quote_check = {"status": "NOT_TESTED"}
+        try:
+            quote_response = client.getMarketData("FULL", {"NFO": [str(contract["token"])]})
+            fetched = (quote_response.get("data") or {}).get("fetched") or [] if isinstance(quote_response, dict) else []
+            if fetched:
+                quote = fetched[0]
+                quote_check = volume_consistency(quote.get("tradeVolume"), summary.get("current_completed_bar_volume"))
+                quote_check["quote_exchange_feed_time"] = quote.get("exchFeedTime")
+                quote_check["quote_exchange_trade_time"] = quote.get("exchTradeTime")
+                quote_check["raw_quote_volume"] = quote.get("tradeVolume")
+                quote_check["raw_quote_oi"] = quote.get("opnInterest")
+        except Exception:
+            quote_check = {"status": "QUOTE_CHECK_ERROR"}
         return {"success": True, "symbol": contract["symbol"],
                 "expiry": contract["expiry_date"], "candle_count": len(candles),
                 "historical_oi_status": oi_status, "historical_oi_points": oi_points,
+                "historical_oi_inspection": oi_inspection, "volume_unit_check": quote_check,
                 **summary,
                 "warning": "Single-contract history only. No rollover-adjusted baseline; do not use for live signals yet."}
     finally:
