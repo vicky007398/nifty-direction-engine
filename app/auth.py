@@ -10,6 +10,16 @@ def connect_from_environment():
     try:
         from SmartApi import SmartConnect
         import pyotp
+    except ModuleNotFoundError as exc:
+        # Only disclose a known module name; never leak paths or exception text.
+        known = {
+            "SmartApi", "pyotp", "logzero", "websocket", "Crypto",
+            "jwt", "pycryptodome", "six", "requests", "dateutil",
+            "numpy", "pandas", "websocket_client", "smartapi"
+        }
+        missing = (exc.name or "").split(".")[0]
+        label = missing if missing in known else "OTHER"
+        raise AngelAuthenticationError("MISSING_MODULE_" + label) from None
     except ImportError:
         raise AngelAuthenticationError("SDK_IMPORT_ERROR") from None
     names = ("ANGEL_API_KEY", "ANGEL_CLIENT_CODE", "ANGEL_PIN", "ANGEL_TOTP_SECRET")
