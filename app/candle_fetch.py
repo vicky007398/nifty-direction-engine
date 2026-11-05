@@ -32,6 +32,10 @@ def fetch_candles_chunked(client, token, start, end, chunk_days=3):
     combined, windows, failures = {}, [], []
     day = start.date()
     while day <= end.date():
+        if day.weekday() >= 5:
+            windows.append({"date": day.isoformat(), "status": "SKIPPED_WEEKEND"})
+            day += timedelta(days=1)
+            continue
         begin = start.replace(year=day.year, month=day.month, day=day.day,
                               hour=9, minute=15, second=0, microsecond=0)
         stop = begin.replace(hour=15, minute=29)
