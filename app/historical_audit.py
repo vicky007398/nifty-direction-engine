@@ -7,6 +7,7 @@ from app.instruments import load_master, nifty_futures_contracts
 from app.data_validation import market_cutoff, oi_sample, volume_consistency
 from app.oi_comparison import oi_session_comparison
 from app.positioning import classify_close_positioning
+from app.candle_fetch import fetch_candles_chunked
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -68,19 +69,19 @@ def audit_historical():
     except AngelAuthenticationError as exc:
         return {"success": False, "failure_category": exc.category}
     try:
-        start = (now - timedelta(days=12)).strftime("%Y-%m-%d 09:15")
-        end = now.strftime("%Y-%m-%d %H:%M")
+        start_time = now - timedelta(days=12)
+        candle_result = fetch_candles_chunked(
+            client, contract["token"], start_time, now, chunk_days=3
+        )
+        if not candle_result["success"]:
+            return {"success": False, "stage": "CANDLES",
+                    "failure_category": candle_result["failure_category"],
+                    "request_windows": candle_result.get("request_windows", [])}
+        candles = candle_result["data"]
         params = {"exchange": "NFO", "symboltoken": str(contract["token"]),
-                  "interval": "ONE_MINUTE", "fromdate": start, "todate": end}
-        try:
-            response = client.getCandleData(params)
-        except Exception:
-            return {"success": False, "stage": "CANDLES", "failure_category": "CANDLE_REQUEST_ERROR"}
-        if not isinstance(response, dict) or response.get("status") is False:
-            return {"success": False, "stage": "CANDLES", "failure_category": "CANDLE_API_REJECTED"}
-        candles = response.get("data") or []
-        if not isinstance(candles, list):
-            return {"success": False, "stage": "CANDLES", "failure_category": "INVALID_CANDLE_FORMAT"}
+                  "interval": "THREE_MINUTE",
+                  "fromdate": start_time.strftime("%Y-%m-%d %H:%M"),
+                  "todate": now.strftime("%Y-%m-%d %H:%M")}
         summary = _baseline(candles, now)
         # Angel historical OI availability must be checked independently.
         oi_status = "UNAVAILABLE"
@@ -118,6 +119,7 @@ def audit_historical():
             quote_check = {"status": "QUOTE_CHECK_ERROR"}
         return {"success": True, "symbol": contract["symbol"],
                 "expiry": contract["expiry_date"], "candle_count": len(candles),
+                "candle_request_windows": candle_result["request_windows"],
                 "historical_oi_status": oi_status, "historical_oi_points": oi_points,
                 "historical_oi_inspection": oi_inspection, "historical_oi_comparison": oi_comparison,
                 "session_positioning": classify_close_positioning(candles, oi_comparison),
