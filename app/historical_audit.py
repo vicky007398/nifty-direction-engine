@@ -7,6 +7,7 @@ from app.instruments import load_master, nifty_futures_contracts
 from app.data_validation import market_cutoff, oi_sample, volume_consistency
 from app.oi_comparison import oi_session_comparison
 from app.positioning import classify_close_positioning
+from app.intraday_positioning import intraday_positioning
 from app.candle_fetch import fetch_candles_chunked
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -88,6 +89,7 @@ def audit_historical():
         oi_points = 0
         oi_inspection = {'status': 'NOT_TESTED'}
         oi_comparison = {'status': 'NOT_TESTED'}
+        oi_rows = []
         try:
             if hasattr(client, "getOIData"):
                 oi_result = client.getOIData({**params, "interval": "THREE_MINUTE"})
@@ -114,6 +116,7 @@ def audit_historical():
             {"status": "PENDING_SESSION_CLOSE", "reason": "LATEST_OI_IS_INTRADAY"}
             if latest_is_today else classify_close_positioning(candles, oi_comparison)
         )
+        intraday_result = intraday_positioning(candles, oi_rows, now)
         quote_check = {"status": "NOT_TESTED"}
         try:
             quote_response = client.getMarketData("FULL", {"NFO": [str(contract["token"])]})
@@ -133,6 +136,7 @@ def audit_historical():
                 "historical_oi_status": oi_status, "historical_oi_points": oi_points,
                 "historical_oi_inspection": oi_inspection, "historical_oi_comparison": oi_comparison,
                 "session_positioning": positioning,
+                "intraday_positioning": intraday_result,
                 "volume_unit_check": quote_check,
                 **summary,
                 "warning": "Single-contract history only. No rollover-adjusted baseline; do not use for live signals yet."}
