@@ -104,6 +104,16 @@ def audit_historical():
                 oi_status = "SDK_METHOD_MISSING"
         except Exception:
             oi_status = "REQUEST_ERROR"
+        latest_oi_day = oi_comparison.get("latest_session")
+        latest_is_today = latest_oi_day == now.date().isoformat()
+        oi_comparison["comparison_type"] = (
+            "INTRADAY_VS_PREVIOUS_CLOSE" if latest_is_today
+            else "COMPLETED_SESSIONS" if latest_oi_day else "UNAVAILABLE"
+        )
+        positioning = (
+            {"status": "PENDING_SESSION_CLOSE", "reason": "LATEST_OI_IS_INTRADAY"}
+            if latest_is_today else classify_close_positioning(candles, oi_comparison)
+        )
         quote_check = {"status": "NOT_TESTED"}
         try:
             quote_response = client.getMarketData("FULL", {"NFO": [str(contract["token"])]})
@@ -122,7 +132,7 @@ def audit_historical():
                 "candle_request_windows": candle_result["request_windows"],
                 "historical_oi_status": oi_status, "historical_oi_points": oi_points,
                 "historical_oi_inspection": oi_inspection, "historical_oi_comparison": oi_comparison,
-                "session_positioning": classify_close_positioning(candles, oi_comparison),
+                "session_positioning": positioning,
                 "volume_unit_check": quote_check,
                 **summary,
                 "warning": "Single-contract history only. No rollover-adjusted baseline; do not use for live signals yet."}
