@@ -1,4 +1,4 @@
-"""Historical candle fetching with conservative rate limiting and safe diagnostics."""
+"""Resilient read-only candle collection. Missing sessions are never silently accepted."""
 from datetime import timedelta
 import time
 
@@ -10,12 +10,15 @@ def _request(client, token, start, end):
         try:
             response = client.getCandleData(params)
         except Exception as exc:
-            if attempt == 0 and type(exc).__name__ in {"DataException", "Timeout", "TimeoutError", "ConnectionError"}:
+            if attempt == 0:
                 time.sleep(2)
                 continue
             return {"success": False, "category": "CANDLE_REQUEST_ERROR",
                     "exception_type": type(exc).__name__}
         if not isinstance(response, dict) or response.get("status") is False:
+            if attempt == 0:
+                time.sleep(2)
+                continue
             return {"success": False, "category": "CANDLE_API_REJECTED"}
         rows = response.get("data") or []
         if not isinstance(rows, list):
@@ -26,32 +29,36 @@ def _request(client, token, start, end):
 def fetch_candles_chunked(client, token, start, end, chunk_days=3):
     if start >= end:
         return {"success": False, "failure_category": "INVALID_DATE_RANGE"}
-    combined, windows = {}, []
-    cursor = start.date()
-    last_day = end.date()
-    while cursor <= last_day:
-        finish_day = min(cursor + timedelta(days=chunk_days), last_day)
-        # All requests use valid NSE session clock times; never use the current clock
-        # on the first historical date (which previously started at 10:25).
-        begin = start.replace(year=cursor.year, month=cursor.month, day=cursor.day, hour=9, minute=15, second=0, microsecond=0)
-        stop = end.replace(year=finish_day.year, month=finish_day.month, day=finish_day.day, hour=15, minute=29, second=0, microsecond=0)
-        if finish_day == end.date():
+    combined, windows, failures = {}, [], []
+    day = start.date()
+    while day <= end.date():
+        begin = start.replace(year=day.year, month=day.month, day=day.day,
+                              hour=9, minute=15, second=0, microsecond=0)
+        stop = begin.replace(hour=15, minute=29)
+        if day == end.date():
             stop = min(stop, end.replace(second=0, microsecond=0))
+        if stop < begin:
+            day += timedelta(days=1)
+            continue
+        # Query individual days to avoid SDK DataException on multi-day windows.
         result = _request(client, token, begin, stop)
         detail = {"from": begin.strftime("%Y-%m-%d %H:%M"),
                   "to": stop.strftime("%Y-%m-%d %H:%M")}
-        if not result["success"]:
+        if result["success"]:
+            for row in result["data"]:
+                if isinstance(row, (list, tuple)) and row:
+                    combined[str(row[0])] = row
+            detail.update({"status": "OK", "bars": len(result["data"])})
+        else:
             detail.update({"status": "FAILED", "exception_type": result.get("exception_type")})
-            windows.append(detail)
-            return {"success": False, "failure_category": result["category"],
-                    "request_windows": windows}
-        for row in result["data"]:
-            if isinstance(row, (list, tuple)) and row:
-                combined[str(row[0])] = row
-        detail.update({"status": "OK", "bars": len(result["data"])})
+            failures.append(day.isoformat())
         windows.append(detail)
-        cursor = finish_day + timedelta(days=1)
-        if cursor <= last_day:
+        day += timedelta(days=1)
+        if day <= end.date():
             time.sleep(1)
-    return {"success": True, "data": [combined[k] for k in sorted(combined)],
+    return {"success": not failures and bool(combined),
+            "partial_data": bool(failures) and bool(combined),
+            "failure_category": "PARTIAL_CANDLE_HISTORY" if failures else ("EMPTY_CANDLE_HISTORY" if not combined else None),
+            "failed_dates": failures,
+            "data": [combined[k] for k in sorted(combined)],
             "request_windows": windows}
