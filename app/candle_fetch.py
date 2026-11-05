@@ -27,14 +27,15 @@ def fetch_candles_chunked(client, token, start, end, chunk_days=3):
     if start >= end:
         return {"success": False, "failure_category": "INVALID_DATE_RANGE"}
     combined, windows = {}, []
-    cursor = start
-    while cursor < end:
-        finish = min(cursor + timedelta(days=chunk_days), end)
+    cursor = start.date()
+    last_day = end.date()
+    while cursor <= last_day:
+        finish_day = min(cursor + timedelta(days=chunk_days), last_day)
         # All requests use valid NSE session clock times; never use the current clock
         # on the first historical date (which previously started at 10:25).
-        begin = cursor.replace(hour=9, minute=15, second=0, microsecond=0)
-        stop = finish.replace(hour=15, minute=29, second=0, microsecond=0)
-        if finish.date() == end.date():
+        begin = start.replace(year=cursor.year, month=cursor.month, day=cursor.day, hour=9, minute=15, second=0, microsecond=0)
+        stop = end.replace(year=finish_day.year, month=finish_day.month, day=finish_day.day, hour=15, minute=29, second=0, microsecond=0)
+        if finish_day == end.date():
             stop = min(stop, end.replace(second=0, microsecond=0))
         result = _request(client, token, begin, stop)
         detail = {"from": begin.strftime("%Y-%m-%d %H:%M"),
@@ -49,8 +50,8 @@ def fetch_candles_chunked(client, token, start, end, chunk_days=3):
                 combined[str(row[0])] = row
         detail.update({"status": "OK", "bars": len(result["data"])})
         windows.append(detail)
-        cursor = finish + timedelta(days=1)
-        if cursor < end:
+        cursor = finish_day + timedelta(days=1)
+        if cursor <= last_day:
             time.sleep(1)
     return {"success": True, "data": [combined[k] for k in sorted(combined)],
             "request_windows": windows}
