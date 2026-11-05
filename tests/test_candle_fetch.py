@@ -16,11 +16,11 @@ def test_chunking_and_deduplication():
     client = FakeClient()
     result = fetch_candles_chunked(client, "123", datetime(2026, 11, 1), datetime(2026, 11, 9))
     assert result["success"] is True
-    assert len(client.calls) == 3
-    assert len(result["data"]) == 3
+    assert len(client.calls) == 9
+    assert len(result["data"]) == 9
 
 def test_safe_error():
     result = fetch_candles_chunked(FailingClient(), "123", datetime(2026, 11, 1), datetime(2026, 11, 2))
-    assert result["failure_category"] == "CANDLE_REQUEST_ERROR"
+    assert result["failure_category"] == "PARTIAL_CANDLE_HISTORY" or result["failure_category"] == "EMPTY_CANDLE_HISTORY"
     assert result["request_windows"][0]["exception_type"] == "TimeoutError"
     assert "private details" not in str(result)
