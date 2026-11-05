@@ -77,7 +77,11 @@ def audit_historical():
         if not candle_result["success"]:
             return {"success": False, "stage": "CANDLES",
                     "failure_category": candle_result["failure_category"],
-                    "request_windows": candle_result.get("request_windows", [])}
+                    "request_windows": candle_result.get("request_windows", []),
+                    "failed_dates": candle_result.get("failed_dates", []),
+                    "retrieved_candle_count": len(candle_result.get("data", [])),
+                    "partial_data_available": candle_result.get("partial_data", False),
+                    "indicators_suppressed": True}
         candles = candle_result["data"]
         params = {"exchange": "NFO", "symboltoken": str(contract["token"]),
                   "interval": "THREE_MINUTE",
